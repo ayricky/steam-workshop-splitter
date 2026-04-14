@@ -21,12 +21,32 @@
 
 <div class="wrap">
 
-    <!-- Upload -->
-    <div class="drop" id="drop-zone">
-        <input type="file" id="file-input" accept=".gif,.mp4,.webm,.avi,.mov,.mkv,.flv,.wmv" hidden>
-        <div id="upload-content">
-            <p>Drop a GIF or video here, or <span class="link">browse</span></p>
-            <small>mp4 webm avi mov mkv gif</small>
+    <!-- Landing / Upload -->
+    <div class="landing" id="landing">
+        <div class="hero">
+            <div class="hero-panels">
+                <div class="hero-panel"></div>
+                <div class="hero-panel"></div>
+                <div class="hero-panel"></div>
+                <div class="hero-panel"></div>
+                <div class="hero-panel"></div>
+            </div>
+            <h2>Video &rarr; 5 animated panels</h2>
+            <p>Drop a video or GIF, crop it, split it, upload it to your Steam Workshop Showcase.</p>
+        </div>
+        <div class="drop" id="drop-zone">
+            <input type="file" id="file-input" accept=".gif,.mp4,.webm,.avi,.mov,.mkv,.flv,.wmv" hidden>
+            <div id="upload-content">
+                <div class="drop-icon">
+                    <svg viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="6" y="6" width="36" height="36" rx="4"/>
+                        <path d="M24 30V18"/>
+                        <path d="M18 24l6-6 6 6"/>
+                    </svg>
+                </div>
+                <p>Drop a file here, or <span class="link">browse</span></p>
+                <small>MP4, WebM, AVI, MOV, MKV, GIF</small>
+            </div>
         </div>
     </div>
 
@@ -42,10 +62,7 @@
         </div>
 
         <div class="grid">
-            <!-- Preview -->
             <div class="preview-side">
-
-                <!-- Source video with crop box + trim — one unified editor -->
                 <div class="source-editor">
                     <div class="crop-source" id="crop-source">
                         <div id="preview-media"></div>
@@ -57,10 +74,8 @@
                         </div>
                     </div>
                     <div class="editor-bar">
-                        <small class="dim"><span id="crop-info">122 x 300</span> per panel &middot; drag edges or body to crop</small>
+                        <small class="dim">Drag to crop &middot; <span id="crop-info">122 x 300</span> per panel</small>
                     </div>
-
-                    <!-- Trim (video) -->
                     <div id="trim-section" style="display:none">
                         <div class="trim-track" id="trim-track">
                             <div class="trim-range" id="trim-range"></div>
@@ -74,7 +89,6 @@
                             <span id="trim-end-label">0.0s</span>
                         </div>
                     </div>
-                    <!-- Trim (gif) -->
                     <div id="trim-section-gif" style="display:none">
                         <div class="inline-fields">
                             <label>Start <input type="number" id="start-time" value="0" min="0" step="0.1"></label>
@@ -82,14 +96,11 @@
                         </div>
                     </div>
                 </div>
-
-                <!-- Split preview canvas -->
                 <div class="canvas-wrap">
                     <canvas id="split-canvas"></canvas>
                 </div>
             </div>
 
-            <!-- Controls -->
             <div class="controls-side">
                 <div class="control-group">
                     <div class="inline-fields">
@@ -101,50 +112,41 @@
                         <button class="link-btn" id="match-ratio-btn">match source ratio</button>
                     </div>
                 </div>
-
                 <div class="control-group">
                     <label class="slider-label">FPS <span id="fps-value">15</span></label>
                     <input type="range" id="fps-slider" min="5" max="30" value="15">
                 </div>
-
                 <div class="control-group">
                     <label class="slider-label">Colors <span id="colors-value">256</span></label>
                     <input type="range" id="colors-slider" min="16" max="256" value="256" step="8">
                 </div>
-
                 <div class="control-group est-group" id="estimate-display"></div>
-
                 <div class="control-group control-group-action">
                     <button class="action-btn" id="process-btn">Split into 5 panels</button>
                 </div>
             </div>
         </div>
 
-        <!-- Processing -->
         <div id="processing-section" style="display:none" class="processing">
             <div class="prog-bar"><div class="prog-fill" id="progress-fill"></div></div>
             <p class="dim" id="progress-text"></p>
             <p class="prog-pct" id="progress-percent">0%</p>
         </div>
 
-        <!-- Results -->
         <div id="results-section" style="display:none">
             <div class="result-stats" id="result-stats"></div>
-
             <div class="result-preview" id="showcase-panels"></div>
-
             <div class="result-row">
                 <button class="action-btn" id="download-all-btn">Download all panels</button>
                 <button class="link-btn" id="resync-btn">resync</button>
             </div>
-
             <div class="upload-section">
                 <div class="inline-fields">
                     <label>Title prefix <input type="text" id="title-prefix" value="showcase"></label>
                 </div>
                 <div class="row-between" style="margin-top:8px">
                     <button class="action-btn action-btn-sm" id="upload-steam-btn">Upload to Steam</button>
-                    <small class="dim">opens Chrome, you log in, it uploads all 5</small>
+                    <small class="dim">opens a browser, you log in, it uploads all 5</small>
                 </div>
                 <div id="upload-progress" style="display:none;margin-top:10px">
                     <div class="prog-bar"><div class="prog-fill" id="upload-progress-fill"></div></div>

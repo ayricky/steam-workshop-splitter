@@ -532,26 +532,44 @@ def serve_upload(filename):
 upload_jobs = {}
 
 def steam_upload_worker(upload_id, output_dir, title_prefix):
-    """Automate the browser console upload method with Selenium."""
+    """Automate the browser console upload method with Selenium.
+    Tries Edge first (ships with Windows), falls back to Chrome."""
     driver = None
     try:
         import time
         from selenium import webdriver
-        from selenium.webdriver.chrome.options import Options
         from selenium.webdriver.common.by import By
         from selenium.webdriver.support.ui import WebDriverWait
         from selenium.webdriver.support import expected_conditions as EC
 
         upload_jobs[upload_id]['status'] = 'login'
-        upload_jobs[upload_id]['step'] = 'Launching Chrome — log into Steam in the window that opens...'
+        upload_jobs[upload_id]['step'] = 'Launching browser...'
 
-        opts = Options()
-        opts.add_argument('--no-first-run')
-        opts.add_argument('--no-default-browser-check')
-        opts.add_experimental_option('excludeSwitches', ['enable-automation'])
+        # Try Edge first (pre-installed on Windows), then Chrome
+        for attempt in ['edge', 'chrome']:
+            try:
+                if attempt == 'edge':
+                    from selenium.webdriver.edge.options import Options
+                    opts = Options()
+                    opts.add_argument('--no-first-run')
+                    opts.add_argument('--no-default-browser-check')
+                    opts.add_experimental_option('excludeSwitches', ['enable-automation'])
+                    driver = webdriver.Edge(options=opts)
+                else:
+                    from selenium.webdriver.chrome.options import Options
+                    opts = Options()
+                    opts.add_argument('--no-first-run')
+                    opts.add_argument('--no-default-browser-check')
+                    opts.add_experimental_option('excludeSwitches', ['enable-automation'])
+                    driver = webdriver.Chrome(options=opts)
+                break
+            except Exception:
+                if attempt == 'chrome':
+                    raise
+                continue
 
-        driver = webdriver.Chrome(options=opts)
         driver.set_window_size(1100, 850)
+        upload_jobs[upload_id]['step'] = 'Log into Steam in the browser window...'
 
         # Navigate to login, which will redirect to the edit page after login
         edit_url = 'https://steamcommunity.com/sharedfiles/edititem/767/3/'
@@ -559,7 +577,7 @@ def steam_upload_worker(upload_id, output_dir, title_prefix):
         time.sleep(2)
 
         # Wait for the user to log in (up to 3 minutes)
-        upload_jobs[upload_id]['step'] = 'Waiting for you to log into Steam in the Chrome window...'
+        upload_jobs[upload_id]['step'] = 'Waiting for you to log into Steam in the browser window...'
         logged_in = False
         for _ in range(180):  # 3 minutes
             url = driver.current_url

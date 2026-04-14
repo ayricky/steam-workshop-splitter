@@ -73,7 +73,7 @@ function resetUpload() {
 //  WORKSPACE
 // ══════════════════════════════════════════════════════════════
 function openWorkspace(data) {
-    dropZone.style.display = 'none';
+    $('landing').style.display = 'none';
     workspace.style.display = '';
 
     $('fb-name').textContent = data.filename;
@@ -84,7 +84,7 @@ function openWorkspace(data) {
     $('change-file-btn').onclick = () => {
         stopPreviewLoop();
         workspace.style.display = 'none';
-        dropZone.style.display = '';
+        $('landing').style.display = '';
         resetUpload();
         $('results-section').style.display = 'none';
         resetBtn();

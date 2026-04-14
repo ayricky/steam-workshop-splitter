@@ -2,11 +2,13 @@
 
 Turn any video or GIF into an animated 5-panel showcase for your Steam profile.
 
+![Workshop Splitter](screenshot.png)
+
 ---
 
 ## Download
 
-**[WorkshopSplitter.exe](https://github.com/ayricky/steam-workshop-splitter/releases/latest/download/WorkshopSplitter.exe)** — Windows, no install needed. Just run it.
+**[Download WorkshopSplitter.exe](https://github.com/ayricky/steam-workshop-splitter/releases/latest/download/WorkshopSplitter.exe)** — Windows, no install needed. Just run it.
 
 > SmartScreen may warn you since the exe isn't signed — click "More info" → "Run anyway".
 
@@ -23,11 +25,9 @@ Requires Python 3.10+.
 
 ---
 
-## Adding panels to your profile
+## After uploading
 
-After uploading (or downloading and uploading manually), go to your Steam profile:
-
-**Edit Profile → Showcases → Workshop Showcase** → add all 5 items in order, left to right.
+Go to your Steam profile → **Edit Profile** → **Showcases** → **Workshop Showcase** → add all 5 items in order, left to right.
 
 Panels may look out of sync on first load — refresh the page once they're cached.
 
