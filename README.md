@@ -2,7 +2,7 @@
 
 Turn any video or GIF into an animated 5-panel showcase for your Steam profile.
 
-![Workshop Splitter](screenshot.png)
+![demo](demo.gif)
 
 ---
 
