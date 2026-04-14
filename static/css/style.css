@@ -64,19 +64,19 @@ code{font:11px/1.4 monospace;background:var(--bg-deep);border:1px solid var(--bo
   display:flex;justify-content:center;gap:5px;margin-bottom:24px;
 }
 .hero-panel{
-  width:28px;height:72px;border-radius:3px;
+  width:28px;height:72px;border-radius:4px;
   background:linear-gradient(180deg,var(--surface) 0%,var(--surface-light) 100%);
   border:1px solid var(--border);
-  animation:hero-pulse 2.8s ease-in-out infinite alternate;
+  animation:hero-wave 3s cubic-bezier(.4,0,.2,1) infinite;
 }
 .hero-panel:nth-child(1){animation-delay:0s}
-.hero-panel:nth-child(2){animation-delay:.2s}
-.hero-panel:nth-child(3){animation-delay:.4s}
-.hero-panel:nth-child(4){animation-delay:.6s}
-.hero-panel:nth-child(5){animation-delay:.8s}
-@keyframes hero-pulse{
-  0%{opacity:.4;transform:scaleY(.92)}
-  100%{opacity:1;transform:scaleY(1.02)}
+.hero-panel:nth-child(2){animation-delay:.12s}
+.hero-panel:nth-child(3){animation-delay:.24s}
+.hero-panel:nth-child(4){animation-delay:.36s}
+.hero-panel:nth-child(5){animation-delay:.48s}
+@keyframes hero-wave{
+  0%,100%{opacity:.35;transform:scaleY(.88)}
+  50%{opacity:1;transform:scaleY(1)}
 }
 
 /* Drop */
