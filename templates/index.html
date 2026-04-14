@@ -1,0 +1,163 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Workshop Splitter</title>
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<nav class="topbar">
+    <div class="topbar-inner">
+        <a class="brand" href="/">
+            <span class="brand-icon">
+                <svg viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="1.5" width="17" height="17" rx="2"/><line x1="5.3" y1="1.5" x2="5.3" y2="18.5"/><line x1="9.1" y1="1.5" x2="9.1" y2="18.5"/><line x1="12.9" y1="1.5" x2="12.9" y2="18.5"/><line x1="16.7" y1="1.5" x2="16.7" y2="18.5"/></svg>
+            </span>
+            WORKSHOP SPLITTER
+        </a>
+    </div>
+</nav>
+
+<div class="wrap">
+
+    <!-- Upload -->
+    <div class="drop" id="drop-zone">
+        <input type="file" id="file-input" accept=".gif,.mp4,.webm,.avi,.mov,.mkv,.flv,.wmv" hidden>
+        <div id="upload-content">
+            <p>Drop a GIF or video here, or <span class="link">browse</span></p>
+            <small>mp4 webm avi mov mkv gif</small>
+        </div>
+    </div>
+
+    <input type="hidden" id="max-size" value="5242880">
+    <input type="hidden" id="auto-optimize" value="1">
+
+    <!-- Workspace -->
+    <div id="workspace" style="display:none">
+
+        <div class="file-bar">
+            <span><strong id="fb-name"></strong> <span class="dim" id="fb-meta"></span></span>
+            <button class="link-btn" id="change-file-btn">change</button>
+        </div>
+
+        <div class="grid">
+            <!-- Preview -->
+            <div class="preview-side">
+
+                <!-- Source video with crop box + trim — one unified editor -->
+                <div class="source-editor">
+                    <div class="crop-source" id="crop-source">
+                        <div id="preview-media"></div>
+                        <div class="crop-box" id="crop-box">
+                            <div class="crop-edge crop-edge-t" data-edge="top"></div>
+                            <div class="crop-edge crop-edge-b" data-edge="bottom"></div>
+                            <div class="crop-edge crop-edge-l" data-edge="left"></div>
+                            <div class="crop-edge crop-edge-r" data-edge="right"></div>
+                        </div>
+                    </div>
+                    <div class="editor-bar">
+                        <small class="dim"><span id="crop-info">122 x 300</span> per panel &middot; drag edges or body to crop</small>
+                    </div>
+
+                    <!-- Trim (video) -->
+                    <div id="trim-section" style="display:none">
+                        <div class="trim-track" id="trim-track">
+                            <div class="trim-range" id="trim-range"></div>
+                            <div class="trim-handle" id="trim-handle-start"></div>
+                            <div class="trim-handle" id="trim-handle-end"></div>
+                            <div class="trim-playhead" id="trim-playhead"></div>
+                        </div>
+                        <div class="trim-labels">
+                            <span id="trim-start-label">0.0s</span>
+                            <span id="trim-current-label"></span>
+                            <span id="trim-end-label">0.0s</span>
+                        </div>
+                    </div>
+                    <!-- Trim (gif) -->
+                    <div id="trim-section-gif" style="display:none">
+                        <div class="inline-fields">
+                            <label>Start <input type="number" id="start-time" value="0" min="0" step="0.1"></label>
+                            <label>End <input type="number" id="end-time" value="0" min="0" step="0.1"></label>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Split preview canvas -->
+                <div class="canvas-wrap">
+                    <canvas id="split-canvas"></canvas>
+                </div>
+            </div>
+
+            <!-- Controls -->
+            <div class="controls-side">
+                <div class="control-group">
+                    <div class="inline-fields">
+                        <label>Width <input type="number" id="panel-width" value="122" min="50" max="500"></label>
+                        <label>Height <input type="number" id="panel-height" value="300" min="50" max="500"></label>
+                    </div>
+                    <div class="row-between">
+                        <small class="dim" id="total-dimensions">610 x 300</small>
+                        <button class="link-btn" id="match-ratio-btn">match source ratio</button>
+                    </div>
+                </div>
+
+                <div class="control-group">
+                    <label class="slider-label">FPS <span id="fps-value">15</span></label>
+                    <input type="range" id="fps-slider" min="5" max="30" value="15">
+                </div>
+
+                <div class="control-group">
+                    <label class="slider-label">Colors <span id="colors-value">256</span></label>
+                    <input type="range" id="colors-slider" min="16" max="256" value="256" step="8">
+                </div>
+
+                <div class="control-group est-group" id="estimate-display"></div>
+
+                <div class="control-group control-group-action">
+                    <button class="action-btn" id="process-btn">Split into 5 panels</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Processing -->
+        <div id="processing-section" style="display:none" class="processing">
+            <div class="prog-bar"><div class="prog-fill" id="progress-fill"></div></div>
+            <p class="dim" id="progress-text"></p>
+            <p class="prog-pct" id="progress-percent">0%</p>
+        </div>
+
+        <!-- Results -->
+        <div id="results-section" style="display:none">
+            <div class="result-stats" id="result-stats"></div>
+
+            <div class="result-preview" id="showcase-panels"></div>
+
+            <div class="result-row">
+                <button class="action-btn" id="download-all-btn">Download all panels</button>
+                <button class="link-btn" id="resync-btn">resync</button>
+            </div>
+
+            <div class="upload-section">
+                <div class="inline-fields">
+                    <label>Title prefix <input type="text" id="title-prefix" value="showcase"></label>
+                </div>
+                <div class="row-between" style="margin-top:8px">
+                    <button class="action-btn action-btn-sm" id="upload-steam-btn">Upload to Steam</button>
+                    <small class="dim">opens Chrome, you log in, it uploads all 5</small>
+                </div>
+                <div id="upload-progress" style="display:none;margin-top:10px">
+                    <div class="prog-bar"><div class="prog-fill" id="upload-progress-fill"></div></div>
+                    <p class="dim" id="upload-step"></p>
+                </div>
+                <div id="upload-result" style="display:none;margin-top:8px">
+                    <p id="upload-result-text"></p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
