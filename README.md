@@ -6,37 +6,28 @@ You know those Steam profiles with anime scenes or cool clips playing across 5 w
 
 ---
 
-## Download & Install
+## Download
 
-### 1. Install Python
+### Option A — Standalone exe (no install needed)
 
-If you don't have Python yet, download it from [python.org](https://www.python.org/downloads/) (3.10 or newer). During install, **check "Add Python to PATH"**.
+**[Download WorkshopSplitter.exe](https://github.com/ayricky/steam-workshop-splitter/releases/latest/download/WorkshopSplitter.exe)** (Windows, ~115 MB)
 
-### 2. Download this tool
+Just run it. No Python, no install, no dependencies. It opens a browser tab automatically.
 
-**[Download ZIP](https://github.com/ayricky/steam-workshop-splitter/archive/refs/heads/main.zip)** and extract it anywhere, or clone with git:
+> Windows SmartScreen may warn you since the exe isn't signed — click "More info" → "Run anyway".
+
+### Option B — Run from source
+
+If you prefer, or you're not on Windows:
 
 ```
 git clone https://github.com/ayricky/steam-workshop-splitter.git
-```
-
-### 3. Install dependencies
-
-Open a terminal in the extracted folder and run:
-
-```
+cd steam-workshop-splitter
 pip install -r requirements.txt
-```
-
-### 4. Run it
-
-```
 python app.py
 ```
 
-Then open **http://localhost:5000** in your browser. That's it.
-
-On Windows you can also just double-click `start.bat`.
+Requires Python 3.10+. Open **http://localhost:5000** in your browser.
 
 ---
 

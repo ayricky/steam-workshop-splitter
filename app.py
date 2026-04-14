@@ -16,7 +16,7 @@ from flask import (
     send_file, send_from_directory
 )
 from PIL import Image, ImageSequence
-from moviepy import VideoFileClip
+from moviepy.video.io.VideoFileClip import VideoFileClip
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 200 * 1024 * 1024  # 200MB upload limit

@@ -3,7 +3,8 @@ __pycache__/
 uploads/
 output/
 *.egg-info/
-dist/
-build/
 .env
 *.log
+build/
+dist/
+*.spec
