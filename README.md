@@ -1,117 +1,126 @@
 # Workshop Splitter
 
-Convert videos and GIFs into 5-panel animated showcases for your Steam profile's Workshop Showcase.
+Turn any video or GIF into an animated 5-panel showcase for your Steam profile.
 
-Takes a video or GIF, lets you crop and trim it, splits it into 5 synchronized panel GIFs, and optionally uploads them to Steam automatically.
+You know those Steam profiles with anime scenes or cool clips playing across 5 workshop items? This tool does that — crop, trim, split, and upload, all from your browser.
 
-![image](https://github.com/user-attachments/assets/placeholder)
+---
 
-## What it does
+## Download & Install
 
-Steam profiles have a Workshop Showcase that displays 5 items in a row. People use this to show a continuous animated scene split across all 5 slots. This tool automates the whole process:
+### 1. Install Python
 
-1. Upload a video or GIF
-2. Visually crop the frame (drag edges, reposition)
-3. Trim the timeline (drag start/end handles)
-4. Adjust FPS and color count with live preview
-5. Split into 5 perfectly synced panel GIFs
-6. Upload to Steam Workshop with one click (via Selenium)
+If you don't have Python yet, download it from [python.org](https://www.python.org/downloads/) (3.10 or newer). During install, **check "Add Python to PATH"**.
 
-## Setup
+### 2. Download this tool
 
-Requires Python 3.10+ and Chrome (for auto-upload).
+**[Download ZIP](https://github.com/ayricky/steam-workshop-splitter/archive/refs/heads/main.zip)** and extract it anywhere, or clone with git:
 
-```bash
+```
 git clone https://github.com/ayricky/steam-workshop-splitter.git
-cd steam-workshop-splitter
+```
+
+### 3. Install dependencies
+
+Open a terminal in the extracted folder and run:
+
+```
 pip install -r requirements.txt
+```
+
+### 4. Run it
+
+```
 python app.py
 ```
 
-Open `http://localhost:5000` in your browser.
+Then open **http://localhost:5000** in your browser. That's it.
 
-### Dependencies
+On Windows you can also just double-click `start.bat`.
 
-- **Flask** — web server
-- **Pillow** — GIF processing and splitting
-- **MoviePy** — video to frame conversion (bundles its own ffmpeg)
-- **Selenium** — automated Steam Workshop upload (optional, needs Chrome)
+---
 
-## Usage
+## How to use
 
-### Crop & Trim
+### Step 1 — Pick your clip
 
-After uploading a file, the editor shows your source with a draggable crop box:
+Drop a video (MP4, MOV, WebM, AVI, MKV) or GIF into the upload area.
 
-- **Drag the box body** to reposition
-- **Drag any edge** to resize the crop region
-- **Drag the timeline handles** below to set start/end times (video pauses to show the exact frame)
-- The split preview updates live as you adjust everything
+### Step 2 — Crop & trim
 
-### Settings
+Once your file loads, you'll see two things:
 
-- **Width / Height** — panel dimensions. Default 122px wide (Steam's native display width). Height is auto-calculated from the crop
-- **FPS** — frame rate. Lower = smaller files, higher = smoother. The preview throttles to match
-- **Colors** — GIF palette size. 256 is max quality, lower = smaller files. The preview shows the color reduction live
-- **Estimated Output** — live file size estimate per panel, updates as you change any setting
+- **Your source video** with a blue crop box on it — drag the box to move it, drag any edge to resize. This controls what part of the frame becomes your showcase.
+- **A timeline bar** underneath (for videos) — drag the start and end handles to pick the exact clip. The video pauses on the frame you're dragging to so you can see exactly where you're cutting.
 
-### Processing
+The **split preview** below shows a live view of how your 5 panels will look, updating in real time as you adjust the crop.
 
-Click **Split into 5 panels**. The tool:
+### Step 3 — Tune quality
 
-- Extracts frames from the cropped/trimmed region
-- Splits each frame into 5 vertical strips
-- Generates synced GIF files (uniform frame count and timing across all panels)
-- Auto-optimizes to fit within the 5MB Steam limit (reduces colors/frames uniformly so panels stay synced)
-- Hex-edits the last byte of each GIF (`0x3B` → `0x21`) so Steam displays them at full height instead of cropping to square
+On the right side:
 
-### Upload to Steam
+- **FPS** — how smooth the animation is. Lower FPS = smaller file size. 15-20 is a good balance.
+- **Colors** — GIF color palette. 256 is best quality, lower = smaller files. The preview shows you what it'll look like.
+- **Estimated Output** — shows the estimated file size per panel. Keep it under 5 MB (the bar turns red if you're over).
 
-Two options:
+### Step 4 — Split
 
-**Automatic (recommended):**
+Click **Split into 5 panels**. The tool processes your clip and shows the result — hover any panel to see its file size and download it individually, or download all 5 as a ZIP.
 
-1. Click **Upload to Steam** in the results
-2. A Chrome window opens to Steam's login page
-3. Log in (handle Steam Guard there)
-4. The tool uploads all 5 panels automatically — injects the console commands, sets titles, uploads files, submits
-5. Go to **Edit Profile → Showcases → Workshop Showcase** and add all 5 items in order
+If panels are out of sync in the preview, click **resync** — this reloads all 5 GIFs at the same time so they start together.
 
-**Manual:**
+### Step 5 — Upload to Steam
 
-1. Go to [Steam Workshop Upload](https://steamcommunity.com/sharedfiles/edititem/767/3/)
-2. Open DevTools console, paste: `$J('#ConsumerAppID').val(480),$J('[name=file_type]').val(0),$J('[name=visibility]').val(0);`
-3. After selecting the file, paste: `$J('#image_width').val(1000).attr('id',''),$J('#image_height').val(1).attr('id','');`
-4. Fill title, check agreement, save
-5. Repeat for all 5 panels
+**Option A — Automatic upload:**
 
-## Technical Details
+1. Type a name prefix (like `naruto` — items will be named `naruto-1` through `naruto-5`)
+2. Click **Upload to Steam**
+3. A Chrome window opens to Steam's login page — log in there
+4. Once you're in, the tool uploads all 5 panels automatically
+5. When it's done, go to your Steam profile → **Edit Profile** → **Showcases** → pick **Workshop Showcase** → add your 5 items in order (1 through 5, left to right)
 
-### Panel sync
+**Option B — Manual upload:**
 
-GIF animations on Steam play independently — each starts when it finishes loading. This tool ensures they stay in sync by:
+1. Download the ZIP and extract the 5 GIFs
+2. Go to the [Steam Workshop Upload Page](https://steamcommunity.com/sharedfiles/edititem/767/3/)
+3. Open your browser's DevTools console (F12 → Console tab) and paste:
+   ```
+   $J('#ConsumerAppID').val(480),$J('[name=file_type]').val(0),$J('[name=visibility]').val(0);
+   ```
+4. Set a title, upload panel 1 as the preview image, check the agreement, save
+5. After selecting the file, also paste this in the console:
+   ```
+   $J('#image_width').val(1000).attr('id',''),$J('#image_height').val(1).attr('id','');
+   ```
+6. Repeat steps 2-5 for all 5 panels
+7. Go to **Edit Profile** → **Showcases** → **Workshop Showcase** and add them in order
 
-- All 5 panels have identical frame counts
-- All frames have uniform timing (snapped to GIF's centisecond resolution)
-- Auto-optimization reduces colors/frames uniformly across all panels (never per-panel)
-- A corner pixel is toggled per frame to prevent Pillow from merging duplicate frames (which would desync the panels)
+---
 
-### Steam "long" showcase
+## FAQ
 
-Steam normally displays Workshop items as 122×122 squares. To make them display at full height (the "long" look), two things are needed:
+**Why do my panels look squished / have black bars on Steam?**
 
-1. The last byte of the GIF is changed from `0x3B` (standard GIF trailer) to `0x21` — this bypasses Steam's dimension validation
-2. During upload, `image_width` and `image_height` form fields are overridden via console injection
+The default panel width is 122px because that's what Steam displays Workshop items at. If you upload at a different width, Steam scales and letterboxes them. Stick to 122px wide.
 
-Both are handled automatically by this tool.
+**Why are my panels out of sync on my profile?**
 
-### Steam dimensions
+This is normal — Steam loads each GIF separately, so they start at slightly different times on the first page load. Refreshing the page (once they're cached) syncs them up. This tool ensures all panels have identical frame counts and timing to minimize drift.
 
-- Workshop showcase renders items at **122px wide**
-- Height can be anything — Steam preserves the aspect ratio
-- Default output: **122 × 300** per panel (tall portrait)
-- File size limit: **~5MB** per panel via the browser upload method
+**What's the file size limit?**
+
+About 5 MB per panel when uploading through the browser. The tool auto-optimizes to fit — it reduces colors and FPS uniformly across all panels if any panel is over the limit.
+
+**Do I need Chrome for the auto-upload?**
+
+Yes, the auto-upload uses Selenium to control Chrome. If you don't have Chrome or don't want to use it, just download the panels and upload them manually.
+
+**Can I use this for the Artwork Showcase too?**
+
+This is specifically for the Workshop Showcase (5 items in a row). The Artwork Showcase has different dimensions and a different upload process.
+
+---
 
 ## License
 
-MIT
+MIT — do whatever you want with it.
