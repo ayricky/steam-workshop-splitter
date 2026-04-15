@@ -57,7 +57,6 @@
     </div>
 
     <input type="hidden" id="max-size" value="5242880">
-    <input type="hidden" id="auto-optimize" value="1">
 
     <!-- Workspace -->
     <div id="workspace" style="display:none">
@@ -91,9 +90,33 @@
                         </div>
                         <div class="trim-labels">
                             <span id="trim-start-label">0.0s</span>
-                            <span id="trim-current-label"></span>
                             <span id="trim-end-label">0.0s</span>
                         </div>
+                        <div class="transport-bar">
+                            <button class="transport-btn" id="frame-back-btn" title="Previous frame (←)">
+                                <svg viewBox="0 0 16 16" width="12" height="12"><path d="M11 2L5 8l6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <button class="transport-btn" id="play-pause-btn" title="Play / Pause (Space)">
+                                <svg id="pp-play" viewBox="0 0 16 16" width="14" height="14"><polygon points="3,1 14,8 3,15" fill="currentColor"/></svg>
+                                <svg id="pp-pause" viewBox="0 0 16 16" width="14" height="14" style="display:none"><rect x="1.5" y="1" width="4.5" height="14" rx="1" fill="currentColor"/><rect x="10" y="1" width="4.5" height="14" rx="1" fill="currentColor"/></svg>
+                            </button>
+                            <button class="transport-btn" id="frame-fwd-btn" title="Next frame (→)">
+                                <svg viewBox="0 0 16 16" width="12" height="12"><path d="M5 2l6 6-6 6" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                            </button>
+                            <span class="transport-time" id="transport-time">0.0s</span>
+                            <div style="flex:1"></div>
+                            <button class="link-btn" id="add-skip-btn">+ skip region</button>
+                        </div>
+                        <div class="mark-bar">
+                            <button class="mark-btn" id="mark-trim-in" title="Set trim start to current frame (I)">trim in</button>
+                            <button class="mark-btn" id="mark-trim-out" title="Set trim end to current frame (O)">trim out</button>
+                            <span class="mark-sep"></span>
+                            <button class="mark-btn" id="mark-skip-in" title="Set last skip zone start to current frame (Shift+I)">skip in</button>
+                            <button class="mark-btn" id="mark-skip-out" title="Set last skip zone end to current frame (Shift+O)">skip out</button>
+                            <span class="mark-sep"></span>
+                            <button class="mark-btn mark-btn-auto" id="auto-skip-black" title="Scan video for black frames and auto-create skip zones">auto-skip black</button>
+                        </div>
+                        <small class="dim" id="skip-info" style="display:block;margin-top:2px"></small>
                     </div>
                     <div id="trim-section-gif" style="display:none">
                         <div class="inline-fields">
@@ -123,10 +146,19 @@
                     <input type="range" id="fps-slider" min="5" max="30" value="15">
                 </div>
                 <div class="control-group">
+                    <label class="slider-label">Speed <span id="speed-value">1x</span></label>
+                    <input type="range" id="speed-slider" min="0.5" max="4" value="1" step="0.01">
+                    <div class="row-between"><small class="dim" id="speed-hint">1x &mdash; original speed</small></div>
+                </div>
+                <div class="control-group">
                     <label class="slider-label">Colors <span id="colors-value">256</span></label>
                     <input type="range" id="colors-slider" min="16" max="256" value="256" step="8">
                 </div>
                 <div class="control-group est-group" id="estimate-display"></div>
+                <div class="control-group metrics-actions">
+                    <button class="action-btn action-btn-sm metrics-btn" id="preprocess-btn">Preprocess metrics</button>
+                    <small class="dim" id="preprocess-status"></small>
+                </div>
                 <div class="control-group control-group-action">
                     <button class="action-btn" id="process-btn">Split into 5 panels</button>
                 </div>

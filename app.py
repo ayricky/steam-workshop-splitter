@@ -28,6 +28,8 @@ os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
 
 # Store processing jobs
 jobs = {}
+estimate_cache = {}
+preprocess_jobs = {}
 
 # ─── Constants ───────────────────────────────────────────────────────
 STEAM_MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB per panel
@@ -47,10 +49,10 @@ def is_video(filename):
     return Path(filename).suffix.lower() in ALLOWED_VIDEO_EXT
 
 
-def cover_crop_frame(frame, target_w, target_h, crop_y=0.5):
+def cover_crop_frame(frame, target_w, target_h):
     """
     Resize a PIL Image to cover target_w x target_h (maintaining aspect ratio),
-    then crop to exact dimensions.  crop_y: 0.0 = top, 0.5 = center, 1.0 = bottom.
+    then center-crop to exact dimensions.
     """
     src_w, src_h = frame.size
     scale = max(target_w / src_w, target_h / src_h)
@@ -58,16 +60,27 @@ def cover_crop_frame(frame, target_w, target_h, crop_y=0.5):
     new_h = max(target_h, int(round(src_h * scale)))
     frame = frame.resize((new_w, new_h), Image.LANCZOS)
 
-    # Crop to exact target
-    left = (new_w - target_w) // 2        # always center horizontally
-    top  = int((new_h - target_h) * crop_y)
+    # Center-crop to exact target
+    left = (new_w - target_w) // 2
+    top  = (new_h - target_h) // 2
     return frame.crop((left, top, left + target_w, top + target_h))
 
 
 def video_to_gif_frames(video_path, start_time=0, end_time=None, fps=15,
-                         target_width=750, target_height=150, crop_y=0.5):
-    """Convert a video file to a list of PIL Image frames (cover-crop, no stretch)."""
+                         target_width=750, target_height=150,
+                         crop_x=0, crop_y=0, crop_w=1, crop_h=1,
+                         skip_ranges=None, speed=1.0):
+    """Convert a video file to a list of PIL Image frames, honouring the crop box.
+
+    speed > 1 fast-forwards: the source is sampled at wider intervals so
+    the output GIF has fewer frames (and a smaller file size).
+    speed < 1 slows down: more frames are sampled.
+    The *output* frame timing stays at 1/fps — only the source sampling
+    stride changes.
+    """
     clip = VideoFileClip(video_path)
+    skip_ranges = skip_ranges or []
+    speed = max(0.25, min(4.0, speed))
 
     # Trim
     if end_time is None or end_time > clip.duration:
@@ -75,27 +88,44 @@ def video_to_gif_frames(video_path, start_time=0, end_time=None, fps=15,
     if start_time > 0 or end_time < clip.duration:
         clip = clip.subclipped(start_time, end_time)
 
-    # Scale to cover (maintain aspect ratio), then crop per-frame
     src_w, src_h = clip.w, clip.h
-    scale = max(target_width / src_w, target_height / src_h)
-    new_w = int(round(src_w * scale))
-    new_h = int(round(src_h * scale))
-    clip = clip.resized(new_size=(new_w, new_h))
 
-    # Extract frames
+    # Pre-scale if source is much larger than the crop region needs
+    needed_w = int(target_width / max(0.01, crop_w))
+    needed_h = int(target_height / max(0.01, crop_h))
+    if src_w > needed_w * 1.5 or src_h > needed_h * 1.5:
+        pre_scale = max(needed_w / src_w, needed_h / src_h)
+        new_w = max(needed_w, int(round(src_w * pre_scale)))
+        new_h = max(needed_h, int(round(src_h * pre_scale)))
+        clip = clip.resized(new_size=(new_w, new_h))
+        src_w, src_h = new_w, new_h
+
+    # Extract frames — source_step controls how fast we walk the source
     frames = []
     frame_duration = 1.0 / fps
-    for t_idx in range(int(clip.duration * fps)):
-        t = t_idx * frame_duration
+    source_step = frame_duration * speed  # e.g. 2x → skip twice as far each output frame
+    num_frames = int(clip.duration / source_step)
+    for t_idx in range(num_frames):
+        t = t_idx * source_step
         if t >= clip.duration:
             break
+        # Check if this frame's absolute time falls in a skip zone
+        abs_t = start_time + t
+        if any(s <= abs_t < e for s, e in skip_ranges):
+            continue
+
         arr = clip.get_frame(t)
         img = Image.fromarray(arr)
-        # Crop to exact target
-        left = (img.width  - target_width)  // 2
-        top  = int((img.height - target_height) * crop_y)
-        top  = max(0, min(top, img.height - target_height))
-        img  = img.crop((left, top, left + target_width, top + target_height))
+
+        # Crop to the user's crop box
+        cx = int(crop_x * src_w)
+        cy = int(crop_y * src_h)
+        cw = max(1, int(crop_w * src_w))
+        ch = max(1, int(crop_h * src_h))
+        img = img.crop((cx, cy, cx + cw, cy + ch))
+
+        # Scale the cropped region to cover target dimensions exactly
+        img = cover_crop_frame(img, target_width, target_height)
         frames.append(img)
 
     actual_duration = clip.duration
@@ -104,8 +134,10 @@ def video_to_gif_frames(video_path, start_time=0, end_time=None, fps=15,
 
 
 def load_gif_frames(gif_path, start_time=0, end_time=None, fps=None,
-                     target_width=750, target_height=150, crop_y=0.5):
-    """Load a GIF and return cover-cropped frames."""
+                     target_width=750, target_height=150,
+                     crop_x=0, crop_y=0, crop_w=1, crop_h=1,
+                     skip_ranges=None, speed=1.0):
+    """Load a GIF and return cropped+scaled frames honouring the crop box."""
     img = Image.open(gif_path)
 
     original_frames = []
@@ -135,13 +167,17 @@ def load_gif_frames(gif_path, start_time=0, end_time=None, fps=None,
     if end_time is None or end_time > total_duration:
         end_time = total_duration
 
-    # Filter frames by time range
+    # Filter frames by time range and skip zones
+    skip_ranges = skip_ranges or []
     trimmed_frames = []
     trimmed_durations = []
     for i, (frame, dur) in enumerate(zip(original_frames, original_durations)):
         frame_start = cumulative_times[i] / 1000.0
         frame_end = frame_start + dur / 1000.0
         if frame_end > start_time and frame_start < end_time:
+            # Skip frames that fall inside a skip zone
+            if any(s <= frame_start < e for s, e in skip_ranges):
+                continue
             trimmed_frames.append(frame)
             trimmed_durations.append(dur)
 
@@ -157,14 +193,29 @@ def load_gif_frames(gif_path, start_time=0, end_time=None, fps=None,
             trimmed_frames = trimmed_frames[::step]
             trimmed_durations = trimmed_durations[::step]
 
+    # Apply speed: keep every Nth frame where N ≈ speed.
+    # speed > 1 → fewer frames (fast-forward), speed < 1 → more kept (slow-mo clamp).
+    speed = max(0.25, min(4.0, speed))
+    if speed != 1.0 and len(trimmed_frames) > 1:
+        step = max(1, round(speed))
+        if step > 1:
+            trimmed_frames = trimmed_frames[::step]
+            trimmed_durations = trimmed_durations[::step]
+
     frame_duration_ms = sum(trimmed_durations) / len(trimmed_durations) if trimmed_durations else 100
     if fps:
         frame_duration_ms = 1000.0 / fps
 
-    # Cover-crop all frames
+    # Crop to user's crop box, then scale to target dimensions
     resized_frames = []
     for frame in trimmed_frames:
-        resized_frames.append(cover_crop_frame(frame, target_width, target_height, crop_y))
+        fw, fh = frame.size
+        cx = int(crop_x * fw)
+        cy = int(crop_y * fh)
+        cw = max(1, int(crop_w * fw))
+        ch = max(1, int(crop_h * fh))
+        cropped = frame.crop((cx, cy, cx + cw, cy + ch))
+        resized_frames.append(cover_crop_frame(cropped, target_width, target_height))
 
     actual_duration = end_time - start_time
     return resized_frames, frame_duration_ms / 1000.0, actual_duration
@@ -231,33 +282,76 @@ def frames_to_gif_bytes(frames, frame_duration, colors=256):
     return buf.getvalue()
 
 
-def optimize_panel_size(frames, frame_duration, target_size=STEAM_MAX_FILE_SIZE,
-                         colors=256, max_iterations=10):
-    """Try to get the GIF under target_size. Returns (bytes, colors, fps, optimized)."""
-    gif_bytes = frames_to_gif_bytes(frames, frame_duration, colors=colors)
-    if len(gif_bytes) <= target_size:
-        return gif_bytes, colors, 1.0 / frame_duration, False
+def estimate_panel_sizes(filepath, settings):
+    """Dry-run the full processing path and return exact final panel sizes."""
+    filename = os.path.basename(filepath)
+    start_time = settings.get('start_time', 0)
+    end_time = settings.get('end_time', None)
+    fps = settings.get('fps', 15)
+    speed = settings.get('speed', 1.0)
+    colors = settings.get('colors', 256)
+    panel_width = settings.get('panel_width', DEFAULT_PANEL_WIDTH)
+    panel_height = settings.get('panel_height', DEFAULT_PANEL_HEIGHT)
+    target_width = panel_width * PANEL_COUNT
+    crop_x = settings.get('crop_x', 0)
+    crop_y = settings.get('crop_y', 0)
+    crop_w = settings.get('crop_w', 1)
+    crop_h = settings.get('crop_h', 1)
+    skip_ranges = settings.get('skip_ranges', [])
 
-    # Reduce colors
-    c = colors
-    for _ in range(max_iterations):
-        c = max(16, c // 2)
-        gif_bytes = frames_to_gif_bytes(frames, frame_duration, colors=c)
-        if len(gif_bytes) <= target_size:
-            return gif_bytes, c, 1.0 / frame_duration, True
+    if is_video(filename):
+        frames, frame_duration, actual_duration = video_to_gif_frames(
+            filepath, start_time, end_time, fps, target_width, panel_height,
+            crop_x, crop_y, crop_w, crop_h, skip_ranges, speed
+        )
+    else:
+        frames, frame_duration, actual_duration = load_gif_frames(
+            filepath, start_time, end_time, fps, target_width, panel_height,
+            crop_x, crop_y, crop_w, crop_h, skip_ranges, speed
+        )
 
-    # Drop frames
-    f, d = frames, frame_duration
-    for _ in range(max_iterations):
-        f = f[::2]
-        d *= 2
-        if len(f) < 2:
-            break
-        gif_bytes = frames_to_gif_bytes(f, d, colors=c)
-        if len(gif_bytes) <= target_size:
-            return gif_bytes, c, 1.0 / d, True
+    if not frames:
+        return {
+            'duration': 0,
+            'frame_count': 0,
+            'panel_sizes': [0 for _ in range(PANEL_COUNT)],
+            'panel_sizes_human': [format_size(0) for _ in range(PANEL_COUNT)],
+            'estimate_bytes': 0,
+            'average_bytes': 0,
+            'average_human': format_size(0),
+            'smallest_bytes': 0,
+            'smallest_human': format_size(0),
+            'estimate_human': format_size(0),
+            'largest_panel': None,
+            'colors': colors,
+            'fps': fps,
+        }
 
-    return gif_bytes, c, 1.0 / d, True
+    panels = split_frames_into_panels(frames, PANEL_COUNT)
+    panel_sizes = [
+        len(frames_to_gif_bytes(pf, frame_duration, colors))
+        for pf in panels
+    ]
+
+    worst_size = max(panel_sizes) if panel_sizes else 0
+    avg_size = int(round(sum(panel_sizes) / len(panel_sizes))) if panel_sizes else 0
+    smallest_size = min(panel_sizes) if panel_sizes else 0
+
+    return {
+        'duration': round(actual_duration, 2),
+        'frame_count': len(frames),
+        'panel_sizes': panel_sizes,
+        'panel_sizes_human': [format_size(size) for size in panel_sizes],
+        'estimate_bytes': worst_size,
+        'average_bytes': avg_size,
+        'average_human': format_size(avg_size),
+        'smallest_bytes': smallest_size,
+        'smallest_human': format_size(smallest_size),
+        'estimate_human': format_size(worst_size),
+        'largest_panel': (panel_sizes.index(worst_size) + 1) if panel_sizes else None,
+        'colors': colors,
+        'fps': fps,
+    }
 
 
 def process_file(job_id, filepath, settings):
@@ -270,12 +364,16 @@ def process_file(job_id, filepath, settings):
         start_time  = settings.get('start_time', 0)
         end_time    = settings.get('end_time', None)
         fps         = settings.get('fps', 15)
+        speed       = settings.get('speed', 1.0)
         colors      = settings.get('colors', 256)
         panel_width = settings.get('panel_width', DEFAULT_PANEL_WIDTH)
         panel_height= settings.get('panel_height', DEFAULT_PANEL_HEIGHT)
-        auto_opt    = settings.get('auto_optimize', True)
         max_size    = settings.get('max_file_size', STEAM_MAX_FILE_SIZE)
-        crop_y      = settings.get('crop_y', 0.5)
+        crop_x      = settings.get('crop_x', 0)
+        crop_y      = settings.get('crop_y', 0)
+        crop_w      = settings.get('crop_w', 1)
+        crop_h      = settings.get('crop_h', 1)
+        skip_ranges = settings.get('skip_ranges', [])
 
         total_width  = panel_width * PANEL_COUNT
         total_height = panel_height
@@ -285,12 +383,14 @@ def process_file(job_id, filepath, settings):
         if is_video(filename):
             jobs[job_id]['step'] = 'Converting video to frames...'
             frames, frame_duration, actual_duration = video_to_gif_frames(
-                filepath, start_time, end_time, fps, total_width, total_height, crop_y
+                filepath, start_time, end_time, fps, total_width, total_height,
+                crop_x, crop_y, crop_w, crop_h, skip_ranges, speed
             )
         else:
             jobs[job_id]['step'] = 'Loading GIF frames...'
             frames, frame_duration, actual_duration = load_gif_frames(
-                filepath, start_time, end_time, fps, total_width, total_height, crop_y
+                filepath, start_time, end_time, fps, total_width, total_height,
+                crop_x, crop_y, crop_w, crop_h, skip_ranges, speed
             )
 
         if not frames:
@@ -308,45 +408,13 @@ def process_file(job_id, filepath, settings):
         output_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
         os.makedirs(output_dir, exist_ok=True)
 
-        # ── Uniform optimization: keep all panels in sync ──
-        # All panels MUST have the same frame count and duration
-        opt_colors = colors
-        opt_frames = panels          # list of 5 frame-lists
-        opt_duration = frame_duration
-        was_optimized = False
-
-        if auto_opt:
-            jobs[job_id]['step'] = 'Optimizing panels (keeping sync)...'
-            # First pass: full quality
-            sizes = [len(frames_to_gif_bytes(pf, opt_duration, opt_colors)) for pf in opt_frames]
-            worst = max(sizes)
-
-            # Reduce colors uniformly until the largest panel fits
-            while worst > max_size and opt_colors > 16:
-                opt_colors = max(16, opt_colors // 2)
-                sizes = [len(frames_to_gif_bytes(pf, opt_duration, opt_colors)) for pf in opt_frames]
-                worst = max(sizes)
-                was_optimized = True
-                jobs[job_id]['step'] = f'Trying {opt_colors} colors...'
-
-            # Drop frames uniformly if still too big
-            while worst > max_size and len(opt_frames[0]) > 2:
-                opt_frames = [pf[::2] for pf in opt_frames]
-                opt_duration *= 2
-                sizes = [len(frames_to_gif_bytes(pf, opt_duration, opt_colors)) for pf in opt_frames]
-                worst = max(sizes)
-                was_optimized = True
-                jobs[job_id]['step'] = f'Reducing to {len(opt_frames[0])} frames...'
-
-        final_fps = 1.0 / opt_duration if opt_duration > 0 else fps
-
-        # Write all panels with identical frame count
+        # Write all panels with identical frame count and duration (keeps sync)
         panel_results = []
-        for i, panel_frames in enumerate(opt_frames):
+        for i, panel_frames in enumerate(panels):
             jobs[job_id]['step'] = f'Writing panel {i + 1}/{PANEL_COUNT}...'
             jobs[job_id]['progress'] = 60 + (i * 8)
 
-            gif_bytes = frames_to_gif_bytes(panel_frames, opt_duration, colors=opt_colors)
+            gif_bytes = frames_to_gif_bytes(panel_frames, frame_duration, colors=colors)
 
             # Hex-edit: change last byte to 0x21 for "long" workshop showcase
             if gif_bytes:
@@ -361,8 +429,7 @@ def process_file(job_id, filepath, settings):
                 'index': i + 1, 'filename': f'panel_{i+1}.gif',
                 'size_bytes': sz, 'size_human': format_size(sz),
                 'within_limit': sz <= max_size,
-                'colors': opt_colors, 'fps': round(final_fps, 1),
-                'optimized': was_optimized,
+                'colors': colors, 'fps': fps,
                 'width': panel_frames[0].width if panel_frames else panel_width,
                 'height': panel_frames[0].height if panel_frames else panel_height,
                 'frame_count': len(panel_frames),
@@ -403,6 +470,51 @@ def format_size(size_bytes):
     elif size_bytes < 1024 * 1024:
         return f"{size_bytes / 1024:.1f} KB"
     return f"{size_bytes / (1024 * 1024):.2f} MB"
+
+
+def detect_black_ranges(filepath, threshold=10, sample_fps=10, min_duration=0.15):
+    """Scan a video and return time ranges where frames are (near-)black.
+
+    threshold  – average pixel brightness (0-255) below which a frame
+                 counts as black.
+    sample_fps – how many frames per second to sample for detection.
+    min_duration – ignore black segments shorter than this many seconds.
+    """
+    import numpy as np
+    clip = VideoFileClip(filepath)
+    frame_dur = 1.0 / sample_fps
+    num_samples = int(clip.duration * sample_fps)
+
+    ranges = []
+    in_black = False
+    black_start = 0.0
+
+    for idx in range(num_samples):
+        t = idx * frame_dur
+        if t >= clip.duration:
+            break
+        frame = clip.get_frame(t)
+        avg = float(np.mean(frame))
+
+        if avg < threshold:
+            if not in_black:
+                in_black = True
+                black_start = t
+        else:
+            if in_black:
+                in_black = False
+                length = t - black_start
+                if length >= min_duration:
+                    ranges.append([round(black_start, 3), round(t, 3)])
+
+    # Still in black at the end of the clip
+    if in_black:
+        length = clip.duration - black_start
+        if length >= min_duration:
+            ranges.append([round(black_start, 3), round(clip.duration, 3)])
+
+    clip.close()
+    return ranges
 
 
 # ─── Routes ──────────────────────────────────────────────────────────
@@ -465,6 +577,169 @@ def upload():
     return jsonify(info)
 
 
+@app.route('/detect-black', methods=['POST'])
+def detect_black():
+    """Scan the uploaded video for black frames and return time ranges."""
+    data = request.json
+    if not data or 'saved_filename' not in data:
+        return jsonify({'error': 'Missing saved_filename'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data.get('saved_filename', ''))
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    if not is_video(os.path.basename(filepath)):
+        return jsonify({'error': 'Black-frame detection is only available for videos'}), 400
+
+    try:
+        threshold = max(1, min(80, int(data.get('threshold', 10))))
+        min_duration = max(0.0, float(data.get('min_duration', 0.15)))
+        ranges = detect_black_ranges(filepath, threshold=threshold,
+                                      min_duration=min_duration)
+        return jsonify({'ranges': ranges, 'count': len(ranges)})
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+def parse_processing_settings(data):
+    skip_ranges_raw = data.get('skip_ranges', [])
+    skip_ranges = []
+    for r in skip_ranges_raw:
+        if isinstance(r, (list, tuple)) and len(r) >= 2:
+            skip_ranges.append((float(r[0]), float(r[1])))
+    return {
+        'start_time':   float(data.get('start_time', 0)),
+        'end_time':     float(data.get('end_time', 0)) or None,
+        'fps':          int(data.get('fps', 15)),
+        'speed':        max(0.25, min(4.0, float(data.get('speed', 1)))),
+        'colors':       int(data.get('colors', 256)),
+        'panel_width':  int(data.get('panel_width', DEFAULT_PANEL_WIDTH)),
+        'panel_height': int(data.get('panel_height', DEFAULT_PANEL_HEIGHT)),
+        'max_file_size':int(data.get('max_file_size', STEAM_MAX_FILE_SIZE)),
+        'crop_x':       float(data.get('crop_x', 0)),
+        'crop_y':       float(data.get('crop_y', 0)),
+        'crop_w':       float(data.get('crop_w', 1)),
+        'crop_h':       float(data.get('crop_h', 1)),
+        'skip_ranges':  skip_ranges,
+    }
+
+
+def estimate_cache_key(filepath, settings):
+    stat = os.stat(filepath)
+    return (
+        os.path.abspath(filepath),
+        stat.st_mtime_ns,
+        stat.st_size,
+        settings.get('start_time'),
+        settings.get('end_time'),
+        settings.get('fps'),
+        settings.get('speed'),
+        settings.get('colors'),
+        settings.get('panel_width'),
+        settings.get('panel_height'),
+        settings.get('max_file_size'),
+        settings.get('crop_x'),
+        settings.get('crop_y'),
+        settings.get('crop_w'),
+        settings.get('crop_h'),
+        tuple(tuple(r) for r in (settings.get('skip_ranges') or [])),
+    )
+
+
+def get_exact_metrics(filepath, settings):
+    cache_key = estimate_cache_key(filepath, settings)
+    if cache_key in estimate_cache:
+        result = dict(estimate_cache[cache_key])
+        result['cached'] = True
+        return result
+
+    result = estimate_panel_sizes(filepath, settings)
+    estimate_cache[cache_key] = dict(result)
+    result['cached'] = False
+    return result
+
+
+def run_preprocess_job(preprocess_id, filepath, settings):
+    try:
+        preprocess_jobs[preprocess_id].update({
+            'status': 'running',
+            'progress': 10,
+            'step': 'Preprocessing full video...',
+        })
+        result = get_exact_metrics(filepath, settings)
+        max_size = settings.get('max_file_size', STEAM_MAX_FILE_SIZE)
+        result['within_limit'] = result['estimate_bytes'] <= max_size
+        preprocess_jobs[preprocess_id].update({
+            'status': 'complete',
+            'progress': 100,
+            'step': 'Exact metrics ready',
+            'result': result,
+        })
+    except Exception as e:
+        preprocess_jobs[preprocess_id].update({
+            'status': 'error',
+            'progress': 100,
+            'step': 'Preprocess failed',
+            'error': str(e),
+        })
+
+
+@app.route('/preprocess', methods=['POST'])
+def preprocess():
+    data = request.json
+    if not data or 'file_id' not in data:
+        return jsonify({'error': 'Missing file_id'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data.get('saved_filename', ''))
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    settings = parse_processing_settings(data)
+    preprocess_id = str(uuid.uuid4())[:8]
+    preprocess_jobs[preprocess_id] = {
+        'status': 'queued',
+        'progress': 0,
+        'step': 'Queued',
+        'result': None,
+        'error': None,
+    }
+
+    thread = threading.Thread(
+        target=run_preprocess_job,
+        args=(preprocess_id, filepath, settings),
+        daemon=True,
+    )
+    thread.start()
+    return jsonify({'preprocess_id': preprocess_id})
+
+
+@app.route('/preprocess-status/<preprocess_id>')
+def preprocess_status(preprocess_id):
+    if preprocess_id not in preprocess_jobs:
+        return jsonify({'error': 'Preprocess job not found'}), 404
+    return jsonify(preprocess_jobs[preprocess_id])
+
+
+@app.route('/estimate', methods=['POST'])
+def estimate():
+    data = request.json
+    if not data or 'file_id' not in data:
+        return jsonify({'error': 'Missing file_id'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data.get('saved_filename', ''))
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    try:
+        settings = parse_processing_settings(data)
+        result = get_exact_metrics(filepath, settings)
+        max_size = settings.get('max_file_size', STEAM_MAX_FILE_SIZE)
+        result['within_limit'] = result['estimate_bytes'] <= max_size
+        return jsonify(result)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
 @app.route('/process', methods=['POST'])
 def process():
     data = request.json
@@ -477,17 +752,7 @@ def process():
 
     job_id = str(uuid.uuid4())[:8]
 
-    settings = {
-        'start_time':   float(data.get('start_time', 0)),
-        'end_time':     float(data.get('end_time', 0)) or None,
-        'fps':          int(data.get('fps', 15)),
-        'colors':       int(data.get('colors', 256)),
-        'panel_width':  int(data.get('panel_width', DEFAULT_PANEL_WIDTH)),
-        'panel_height': int(data.get('panel_height', DEFAULT_PANEL_HEIGHT)),
-        'auto_optimize':bool(data.get('auto_optimize', True)),
-        'max_file_size':int(data.get('max_file_size', STEAM_MAX_FILE_SIZE)),
-        'crop_y':       float(data.get('crop_y', 0.5)),
-    }
+    settings = parse_processing_settings(data)
 
     jobs[job_id] = {'status':'queued','progress':0,'step':'Starting...','result':None,'error':None}
     thread = threading.Thread(target=process_file, args=(job_id, filepath, settings), daemon=True)
@@ -756,6 +1021,8 @@ def upload_status(upload_id):
 @app.route('/cleanup', methods=['POST'])
 def cleanup():
     try:
+        estimate_cache.clear()
+        preprocess_jobs.clear()
         for folder in [app.config['UPLOAD_FOLDER'], app.config['OUTPUT_FOLDER']]:
             for item in os.listdir(folder):
                 p = os.path.join(folder, item)
