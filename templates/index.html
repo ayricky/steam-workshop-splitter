@@ -66,6 +66,11 @@
             <button class="link-btn" id="change-file-btn">change</button>
         </div>
 
+        <div class="mode-tabs">
+            <button class="mode-tab active" data-mode="workshop">Workshop Showcase</button>
+            <button class="mode-tab" data-mode="profile">Profile Picture</button>
+        </div>
+
         <div class="grid">
             <div class="preview-side">
                 <div class="source-editor">
@@ -131,7 +136,7 @@
             </div>
 
             <div class="controls-side">
-                <div class="control-group">
+                <div class="control-group workshop-only">
                     <div class="inline-fields">
                         <label>Width <input type="number" id="panel-width" value="122" min="50" max="500"></label>
                         <label>Height <input type="number" id="panel-height" value="300" min="50" max="500"></label>
@@ -141,26 +146,39 @@
                         <button class="link-btn" id="match-ratio-btn">match source ratio</button>
                     </div>
                 </div>
-                <div class="control-group">
+                <div class="control-group workshop-only">
                     <label class="slider-label">FPS <span id="fps-value">15</span></label>
                     <input type="range" id="fps-slider" min="5" max="30" value="15">
+                    <div class="row-between"><button class="link-btn" id="optimize-fps-btn">find max FPS under 5 MB</button><small class="dim" id="optimize-fps-status"></small></div>
                 </div>
-                <div class="control-group">
+                <div class="control-group workshop-only">
                     <label class="slider-label">Speed <span id="speed-value">1x</span></label>
                     <input type="range" id="speed-slider" min="0.5" max="4" value="1" step="0.01">
                     <div class="row-between"><small class="dim" id="speed-hint">1x &mdash; original speed</small></div>
                 </div>
-                <div class="control-group">
+                <div class="control-group workshop-only">
                     <label class="slider-label">Colors <span id="colors-value">256</span></label>
                     <input type="range" id="colors-slider" min="16" max="256" value="256" step="8">
                 </div>
-                <div class="control-group est-group" id="estimate-display"></div>
-                <div class="control-group metrics-actions">
+                <div class="control-group est-group workshop-only" id="estimate-display"></div>
+                <div class="control-group metrics-actions workshop-only">
                     <button class="action-btn action-btn-sm metrics-btn" id="preprocess-btn">Preprocess metrics</button>
                     <small class="dim" id="preprocess-status"></small>
                 </div>
-                <div class="control-group control-group-action">
+                <div class="control-group control-group-action workshop-only">
                     <button class="action-btn" id="process-btn">Split into 5 panels</button>
+                </div>
+
+                <!-- Profile Picture controls (hidden in workshop mode) -->
+                <div class="profile-only" style="display:none">
+                    <div class="control-group">
+                        <label class="slider-label">Output size <span id="profile-size-value">512</span>px</label>
+                        <input type="range" id="profile-size-slider" min="184" max="1024" value="512" step="1">
+                        <small class="dim">Square — Steam displays at 184 × 184</small>
+                    </div>
+                    <div class="control-group control-group-action">
+                        <button class="action-btn" id="capture-btn">Capture frame</button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -192,6 +210,19 @@
                 </div>
                 <div id="upload-result" style="display:none;margin-top:8px">
                     <p id="upload-result-text"></p>
+                </div>
+            </div>
+        </div>
+
+        <div id="profile-results" style="display:none">
+            <div class="profile-result-card">
+                <img id="profile-preview-img" src="" alt="Profile picture preview">
+                <div class="profile-result-info">
+                    <span id="profile-result-meta"></span>
+                    <div style="margin-top:8px;display:flex;gap:8px">
+                        <button class="action-btn action-btn-sm" id="profile-download-btn">Download PNG</button>
+                        <button class="link-btn" id="profile-recapture-btn">recapture</button>
+                    </div>
                 </div>
             </div>
         </div>

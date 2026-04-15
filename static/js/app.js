@@ -28,6 +28,8 @@ let estimateDebounce = null, estimateRequestSeq = 0;
 let cropX = 0, cropY = 0, cropW = 1, cropH = 1;
 // Skip zones (array of {id, start, end} in seconds)
 let skipZones = [], skipZoneId = 0, activeSkipZoneId = null;
+// Mode: 'workshop' or 'profile'
+let currentMode = 'workshop';
 
 // ── DOM ────────────────────────────────────────────────────────
 const $ = id => document.getElementById(id);
@@ -213,6 +215,7 @@ function initCropBox() {
         } else if (mode === 'right') {
             cropW = clamp(cw0 + dx, 0.05, 1 - cropX);
         }
+        enforceSquareCrop();
         updateCropBox();
         updatePanelSizeFromCrop();
     };
@@ -1112,6 +1115,169 @@ $('match-ratio-btn').addEventListener('click', () => {
     autoMatchRatio(uploadedFile.width, uploadedFile.height);
     updateCropBox();
 });
+
+// ══════════════════════════════════════════════════════════════
+//  MODE SWITCHING (Workshop ↔ Profile Picture)
+// ══════════════════════════════════════════════════════════════
+document.querySelectorAll('.mode-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+        if (tab.dataset.mode === currentMode) return;
+        document.querySelectorAll('.mode-tab').forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        currentMode = tab.dataset.mode;
+        applyMode();
+    });
+});
+
+function applyMode() {
+    const ws = currentMode === 'workshop';
+    // Show/hide workshop-only elements
+    document.querySelectorAll('.workshop-only').forEach(el => el.style.display = ws ? '' : 'none');
+    document.querySelectorAll('.profile-only').forEach(el => el.style.display = ws ? 'none' : '');
+    // Canvas wrap (split preview)
+    const canvasWrap = document.querySelector('.canvas-wrap');
+    if (canvasWrap) canvasWrap.style.display = ws ? '' : 'none';
+    // Workshop results vs profile results
+    $('results-section').style.display = 'none';
+    $('profile-results').style.display = 'none';
+    $('processing-section').style.display = 'none';
+    // Editor bar text
+    const edBar = document.querySelector('.editor-bar small');
+    if (edBar) {
+        edBar.innerHTML = ws
+            ? 'Drag to crop &middot; <span id="crop-info">122 x 300</span> per panel'
+            : 'Drag to crop &middot; square crop for profile picture';
+    }
+    // Enforce square crop in profile mode
+    const box = $('crop-box');
+    if (box) box.classList.toggle('square-lock', !ws);
+    if (!ws) enforceSquareCrop();
+    updateCropBox();
+}
+
+/** In profile mode, snap the crop box to a pixel-square. */
+function enforceSquareCrop() {
+    if (currentMode !== 'profile' || !sourceEl) return;
+    const srcW = sourceEl.videoWidth || sourceEl.naturalWidth || 1;
+    const srcH = sourceEl.videoHeight || sourceEl.naturalHeight || 1;
+    const pixW = cropW * srcW;
+    const pixH = cropH * srcH;
+    const side = Math.min(pixW, pixH, srcW, srcH);
+    cropW = Math.min(side / srcW, 1);
+    cropH = Math.min(side / srcH, 1);
+    cropX = clamp(cropX, 0, 1 - cropW);
+    cropY = clamp(cropY, 0, 1 - cropH);
+}
+
+// ══════════════════════════════════════════════════════════════
+//  OPTIMIZE FPS
+// ══════════════════════════════════════════════════════════════
+$('optimize-fps-btn').addEventListener('click', startOptimizeFps);
+
+async function startOptimizeFps() {
+    if (!uploadedFile) return;
+    const btn = $('optimize-fps-btn');
+    const status = $('optimize-fps-status');
+    btn.disabled = true; btn.textContent = 'searching...';
+    status.textContent = '';
+
+    try {
+        const settings = currentProcessSettings();
+        const res = await fetch('/optimize-fps', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(settings),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        const optId = data.optimize_id;
+        const pi = setInterval(async () => {
+            try {
+                const sr = await fetch(`/optimize-fps-status/${optId}`);
+                const sd = await sr.json();
+                status.textContent = sd.step || '';
+
+                if (sd.status === 'complete') {
+                    clearInterval(pi);
+                    const fps = sd.result.optimal_fps;
+                    fpsSlider.value = fps;
+                    fpsVal.textContent = fps;
+                    btn.disabled = false;
+                    btn.textContent = 'find max FPS under 5 MB';
+                    status.textContent = `Set to ${fps} FPS`;
+                    updateEstimate();
+                    // Cache exact metrics from the optimize result
+                    if (sd.result.estimate) {
+                        const s2 = currentProcessSettings();
+                        const k2 = estimateKey(s2);
+                        cacheExactEstimate(k2, sd.result.estimate, s2);
+                        updateEstimate();
+                    }
+                } else if (sd.status === 'error') {
+                    clearInterval(pi);
+                    btn.disabled = false;
+                    btn.textContent = 'find max FPS under 5 MB';
+                    status.textContent = sd.error || 'Failed';
+                    status.style.color = 'var(--red)';
+                }
+            } catch (e) { console.error(e); }
+        }, 1000);
+    } catch (e) {
+        btn.disabled = false;
+        btn.textContent = 'find max FPS under 5 MB';
+        status.textContent = e.message;
+        status.style.color = 'var(--red)';
+    }
+}
+
+// ══════════════════════════════════════════════════════════════
+//  PROFILE PICTURE CAPTURE
+// ══════════════════════════════════════════════════════════════
+$('profile-size-slider').addEventListener('input', () => {
+    $('profile-size-value').textContent = $('profile-size-slider').value;
+});
+$('capture-btn').addEventListener('click', captureProfilePic);
+$('profile-recapture-btn').addEventListener('click', () => {
+    $('profile-results').style.display = 'none';
+});
+
+async function captureProfilePic() {
+    if (!uploadedFile || !sourceEl) return;
+    const btn = $('capture-btn');
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Capturing...';
+
+    try {
+        const timestamp = sourceEl.currentTime || 0;
+        const outputSize = parseInt($('profile-size-slider').value) || 512;
+        const res = await fetch('/capture-frame', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                saved_filename: uploadedFile.saved_filename,
+                timestamp,
+                crop_x: cropX, crop_y: cropY,
+                crop_w: cropW, crop_h: cropH,
+                output_size: outputSize,
+            }),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error);
+
+        $('profile-preview-img').src = `/profile-pic/${data.filename}?t=${Date.now()}`;
+        $('profile-result-meta').textContent = `${data.size} × ${data.size} px  ·  ${data.file_size_human}`;
+        $('profile-download-btn').onclick = () => {
+            window.location.href = `/download-profile/${data.filename}`;
+        };
+        $('profile-results').style.display = '';
+        $('profile-results').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } catch (e) {
+        alert('Capture failed: ' + e.message);
+    }
+    btn.disabled = false;
+    btn.innerHTML = 'Capture frame';
+}
 
 // ══════════════════════════════════════════════════════════════
 //  PROCESS

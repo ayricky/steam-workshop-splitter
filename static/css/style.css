@@ -98,6 +98,21 @@ code{font:11px/1.4 monospace;background:var(--bg-deep);border:1px solid var(--bo
 .drop-icon svg{width:40px;height:40px;color:var(--fg2);transition:color .2s}
 .drop:hover .drop-icon svg{color:var(--accent)}
 
+/* Mode tabs */
+.mode-tabs{
+  display:flex;gap:0;margin-bottom:14px;
+  border:1px solid var(--border-dim);border-radius:var(--r);overflow:hidden;
+  background:var(--bg-deep);
+}
+.mode-tab{
+  flex:1;padding:8px 12px;border:none;background:none;
+  color:var(--fg2);font:12px var(--font);font-weight:600;cursor:pointer;
+  text-transform:uppercase;letter-spacing:.05em;
+  transition:background .15s,color .15s;
+}
+.mode-tab:hover{background:rgba(255,255,255,.04);color:var(--bright)}
+.mode-tab.active{background:var(--surface);color:var(--accent)}
+
 /* File bar */
 .file-bar{
   display:flex;justify-content:space-between;align-items:center;
@@ -393,3 +408,22 @@ input[type="range"]::-moz-range-thumb{
 /* Spinner */
 .spinner{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.2);border-top-color:var(--white);border-radius:50%;animation:spin .5s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+
+/* Profile picture result */
+.profile-result-card{
+  display:flex;align-items:flex-start;gap:16px;
+  background:var(--bg-deep);border:1px solid var(--border-dim);border-radius:var(--r);
+  padding:14px;margin-top:14px;
+}
+.profile-result-card img{
+  width:184px;height:184px;border-radius:var(--r);
+  border:1px solid var(--border-dim);object-fit:cover;flex-shrink:0;
+}
+.profile-result-info{font-size:12px;color:var(--fg2)}
+.profile-result-info span{display:block;margin-bottom:2px}
+/* Crop hint for profile mode */
+.crop-box.square-lock::after{
+  content:'';position:absolute;inset:0;
+  border:1px dashed rgba(255,255,255,.25);border-radius:50%;
+  pointer-events:none;
+}

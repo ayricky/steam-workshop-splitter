@@ -30,6 +30,8 @@ os.makedirs(app.config['OUTPUT_FOLDER'], exist_ok=True)
 jobs = {}
 estimate_cache = {}
 preprocess_jobs = {}
+panel_gif_cache = {}   # estimate_cache_key → {panel_bytes, preview_bytes, …}
+optimize_jobs = {}
 
 # ─── Constants ───────────────────────────────────────────────────────
 STEAM_MAX_FILE_SIZE = 5 * 1024 * 1024  # 5MB per panel
@@ -328,10 +330,30 @@ def estimate_panel_sizes(filepath, settings):
         }
 
     panels = split_frames_into_panels(frames, PANEL_COUNT)
-    panel_sizes = [
-        len(frames_to_gif_bytes(pf, frame_duration, colors))
-        for pf in panels
-    ]
+
+    # Encode each panel and keep the bytes for the process_file cache
+    panel_bytes_list = []
+    panel_sizes = []
+    for pf in panels:
+        gif_bytes = frames_to_gif_bytes(pf, frame_duration, colors)
+        panel_bytes_list.append(gif_bytes)
+        panel_sizes.append(len(gif_bytes))
+
+    # Also encode the combined preview so process_file never re-does work
+    preview_bytes = frames_to_gif_bytes(frames, frame_duration, colors)
+
+    # Cache everything keyed by settings so process_file can reuse it
+    cache_key = estimate_cache_key(filepath, settings)
+    panel_gif_cache.clear()          # only keep one set in memory
+    panel_gif_cache[cache_key] = {
+        'panel_bytes': panel_bytes_list,
+        'preview_bytes': preview_bytes,
+        'frame_duration': frame_duration,
+        'frame_count': len(frames),
+        'duration': actual_duration,
+        'colors': colors,
+        'fps': fps,
+    }
 
     worst_size = max(panel_sizes) if panel_sizes else 0
     avg_size = int(round(sum(panel_sizes) / len(panel_sizes))) if panel_sizes else 0
@@ -355,20 +377,70 @@ def estimate_panel_sizes(filepath, settings):
 
 
 def process_file(job_id, filepath, settings):
-    """Main processing pipeline."""
+    """Main processing pipeline.  Reuses cached bytes from preprocess
+    when available so the user doesn't pay for GIF encoding twice."""
     try:
         jobs[job_id]['status'] = 'processing'
         jobs[job_id]['progress'] = 10
 
+        panel_width  = settings.get('panel_width', DEFAULT_PANEL_WIDTH)
+        panel_height = settings.get('panel_height', DEFAULT_PANEL_HEIGHT)
+        max_size     = settings.get('max_file_size', STEAM_MAX_FILE_SIZE)
+        colors       = settings.get('colors', 256)
+        fps          = settings.get('fps', 15)
+
+        output_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
+        os.makedirs(output_dir, exist_ok=True)
+
+        # ── Try to use cached bytes from a prior preprocess ──────────
+        cache_key = estimate_cache_key(filepath, settings)
+        cached = panel_gif_cache.get(cache_key)
+
+        if cached and len(cached.get('panel_bytes', [])) == PANEL_COUNT:
+            jobs[job_id]['step'] = 'Writing cached panels...'
+            jobs[job_id]['progress'] = 60
+            panel_results = []
+            for i, gif_bytes in enumerate(cached['panel_bytes']):
+                if gif_bytes:
+                    gif_bytes = gif_bytes[:-1] + b'\x21'
+                path = os.path.join(output_dir, f'panel_{i+1}.gif')
+                with open(path, 'wb') as f:
+                    f.write(gif_bytes)
+                sz = len(gif_bytes)
+                panel_results.append({
+                    'index': i + 1, 'filename': f'panel_{i+1}.gif',
+                    'size_bytes': sz, 'size_human': format_size(sz),
+                    'within_limit': sz <= max_size,
+                    'colors': cached['colors'], 'fps': cached['fps'],
+                    'width': panel_width, 'height': panel_height,
+                    'frame_count': cached['frame_count'],
+                })
+
+            jobs[job_id]['step'] = 'Writing preview...'
+            jobs[job_id]['progress'] = 90
+            with open(os.path.join(output_dir, 'preview_combined.gif'), 'wb') as f:
+                f.write(cached.get('preview_bytes', b''))
+
+            zip_path = os.path.join(output_dir, 'steam_panels.zip')
+            with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
+                for r in panel_results:
+                    zf.write(os.path.join(output_dir, r['filename']), r['filename'])
+
+            jobs[job_id]['status'] = 'complete'
+            jobs[job_id]['progress'] = 100
+            jobs[job_id]['step'] = 'Done (from cache)!'
+            jobs[job_id]['result'] = {
+                'panels': panel_results,
+                'total_frames': cached['frame_count'],
+                'duration': round(cached['duration'], 2),
+            }
+            return
+
+        # ── Full pipeline (no cache hit) ─────────────────────────────
         filename    = os.path.basename(filepath)
         start_time  = settings.get('start_time', 0)
         end_time    = settings.get('end_time', None)
-        fps         = settings.get('fps', 15)
         speed       = settings.get('speed', 1.0)
-        colors      = settings.get('colors', 256)
-        panel_width = settings.get('panel_width', DEFAULT_PANEL_WIDTH)
-        panel_height= settings.get('panel_height', DEFAULT_PANEL_HEIGHT)
-        max_size    = settings.get('max_file_size', STEAM_MAX_FILE_SIZE)
         crop_x      = settings.get('crop_x', 0)
         crop_y      = settings.get('crop_y', 0)
         crop_w      = settings.get('crop_w', 1)
@@ -405,10 +477,6 @@ def process_file(job_id, filepath, settings):
         jobs[job_id]['progress'] = 60
         jobs[job_id]['step'] = 'Generating GIFs...'
 
-        output_dir = os.path.join(app.config['OUTPUT_FOLDER'], job_id)
-        os.makedirs(output_dir, exist_ok=True)
-
-        # Write all panels with identical frame count and duration (keeps sync)
         panel_results = []
         for i, panel_frames in enumerate(panels):
             jobs[job_id]['step'] = f'Writing panel {i + 1}/{PANEL_COUNT}...'
@@ -416,7 +484,6 @@ def process_file(job_id, filepath, settings):
 
             gif_bytes = frames_to_gif_bytes(panel_frames, frame_duration, colors=colors)
 
-            # Hex-edit: change last byte to 0x21 for "long" workshop showcase
             if gif_bytes:
                 gif_bytes = gif_bytes[:-1] + b'\x21'
 
@@ -435,14 +502,12 @@ def process_file(job_id, filepath, settings):
                 'frame_count': len(panel_frames),
             })
 
-        # Combined preview
         jobs[job_id]['step'] = 'Generating preview...'
         jobs[job_id]['progress'] = 95
         preview = frames_to_gif_bytes(frames, frame_duration, colors=colors)
         with open(os.path.join(output_dir, 'preview_combined.gif'), 'wb') as f:
             f.write(preview)
 
-        # Zip
         zip_path = os.path.join(output_dir, 'steam_panels.zip')
         with zipfile.ZipFile(zip_path, 'w', zipfile.ZIP_DEFLATED) as zf:
             for r in panel_results:
@@ -599,6 +664,155 @@ def detect_black():
         return jsonify({'ranges': ranges, 'count': len(ranges)})
     except Exception as e:
         return jsonify({'error': str(e)}), 500
+
+
+def optimize_fps_worker(opt_id, filepath, settings):
+    """Binary-search for the highest FPS (5–30) where all panels ≤ limit."""
+    try:
+        optimize_jobs[opt_id].update({'status': 'running', 'progress': 5,
+                                       'step': 'Starting FPS search...'})
+        max_size = settings.get('max_file_size', STEAM_MAX_FILE_SIZE)
+        lo, hi = 5, 30
+        best_fps = 5
+        best_result = None
+        iters = 0
+
+        while lo <= hi:
+            mid = (lo + hi) // 2
+            iters += 1
+            optimize_jobs[opt_id]['step'] = f'Testing {mid} FPS (pass {iters})...'
+            optimize_jobs[opt_id]['progress'] = min(90, 5 + iters * 15)
+
+            test_settings = dict(settings)
+            test_settings['fps'] = mid
+            result = estimate_panel_sizes(filepath, test_settings)
+            worst = max(result['panel_sizes']) if result['panel_sizes'] else 0
+
+            if worst <= max_size:
+                best_fps = mid
+                best_result = result
+                lo = mid + 1
+            else:
+                hi = mid - 1
+
+        optimize_jobs[opt_id].update({
+            'status': 'complete', 'progress': 100,
+            'step': f'Optimal: {best_fps} FPS',
+            'result': {'optimal_fps': best_fps, 'estimate': best_result},
+        })
+    except Exception as e:
+        optimize_jobs[opt_id].update({'status': 'error', 'progress': 100,
+                                       'error': str(e)})
+
+
+@app.route('/optimize-fps', methods=['POST'])
+def optimize_fps():
+    data = request.json
+    if not data or 'saved_filename' not in data:
+        return jsonify({'error': 'Missing saved_filename'}), 400
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data.get('saved_filename', ''))
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    settings = parse_processing_settings(data)
+    opt_id = str(uuid.uuid4())[:8]
+    optimize_jobs[opt_id] = {'status': 'queued', 'progress': 0, 'step': 'Queued',
+                              'result': None, 'error': None}
+    thread = threading.Thread(target=optimize_fps_worker,
+                               args=(opt_id, filepath, settings), daemon=True)
+    thread.start()
+    return jsonify({'optimize_id': opt_id})
+
+
+@app.route('/optimize-fps-status/<opt_id>')
+def optimize_fps_status(opt_id):
+    if opt_id not in optimize_jobs:
+        return jsonify({'error': 'Not found'}), 404
+    return jsonify(optimize_jobs[opt_id])
+
+
+@app.route('/capture-frame', methods=['POST'])
+def capture_frame():
+    """Extract a single frame from a video/GIF, crop, resize, return as PNG."""
+    data = request.json
+    if not data or 'saved_filename' not in data:
+        return jsonify({'error': 'Missing saved_filename'}), 400
+
+    filepath = os.path.join(app.config['UPLOAD_FOLDER'], data.get('saved_filename', ''))
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+
+    timestamp = float(data.get('timestamp', 0))
+    cx = float(data.get('crop_x', 0))
+    cy = float(data.get('crop_y', 0))
+    cw = float(data.get('crop_w', 1))
+    ch = float(data.get('crop_h', 1))
+    output_size = max(64, min(2048, int(data.get('output_size', 512))))
+
+    try:
+        filename = os.path.basename(filepath)
+        if is_video(filename):
+            clip = VideoFileClip(filepath)
+            t = min(timestamp, max(0, clip.duration - 0.01))
+            arr = clip.get_frame(t)
+            img = Image.fromarray(arr)
+            clip.close()
+        else:
+            gif = Image.open(filepath)
+            # walk to the frame nearest to timestamp
+            elapsed = 0
+            target_frame = gif.copy().convert('RGB')
+            try:
+                for frame in ImageSequence.Iterator(gif):
+                    dur = frame.info.get('duration', 100) / 1000.0
+                    if elapsed + dur > timestamp:
+                        target_frame = frame.copy().convert('RGB')
+                        break
+                    elapsed += dur
+            except EOFError:
+                pass
+            img = target_frame
+
+        # Crop
+        w, h = img.size
+        left   = int(cx * w)
+        top    = int(cy * h)
+        right  = min(w, left + max(1, int(cw * w)))
+        bottom = min(h, top  + max(1, int(ch * h)))
+        img = img.crop((left, top, right, bottom))
+
+        # Resize to square
+        img = img.resize((output_size, output_size), Image.LANCZOS)
+
+        out_id = str(uuid.uuid4())[:8]
+        out_dir = os.path.join(app.config['OUTPUT_FOLDER'], 'profile')
+        os.makedirs(out_dir, exist_ok=True)
+        out_name = f'profile_{out_id}.png'
+        out_path = os.path.join(out_dir, out_name)
+        img.save(out_path, 'PNG', optimize=True)
+
+        return jsonify({
+            'filename': out_name,
+            'output_id': out_id,
+            'size': output_size,
+            'file_size': os.path.getsize(out_path),
+            'file_size_human': format_size(os.path.getsize(out_path)),
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+
+@app.route('/profile-pic/<filename>')
+def serve_profile_pic(filename):
+    return send_from_directory(
+        os.path.join(app.config['OUTPUT_FOLDER'], 'profile'), filename)
+
+
+@app.route('/download-profile/<filename>')
+def download_profile(filename):
+    fp = os.path.join(app.config['OUTPUT_FOLDER'], 'profile', filename)
+    if not os.path.exists(fp):
+        return jsonify({'error': 'File not found'}), 404
+    return send_file(fp, as_attachment=True, download_name=filename)
 
 
 def parse_processing_settings(data):
